@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDS OTA 劫持实战沙盘</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --panel-bg: #161b22;
+            --border-color: #30363d;
+            --text-main: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #ff7b72;
+            --accent-cyan: #39c5cf;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .dashboard {
+            width: 100%;
+            max-width: 1100px;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+
+        /* 头部和控制区 */
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+
+        h2 { margin: 0; color: var(--accent-blue); font-weight: 600; letter-spacing: 1px;}
+
+        .controls button {
+            background: #238636; color: #fff;
+            border: 1px solid rgba(240,246,252,0.1);
+            padding: 10px 20px; border-radius: 6px;
+            cursor: pointer; font-weight: bold; font-size: 14px;
+            transition: 0.2s; margin-left: 10px;
+        }
+        .controls button:hover { background: #2ea043; }
+        .controls button:disabled { background: #21262d; color: var(--text-muted); cursor: not-allowed; }
+        #btn-reset { background: transparent; border-color: var(--border-color); color: var(--text-main); }
+        #btn-reset:hover { border-color: var(--text-muted); }
+
+        /* 左侧：进度时间轴 */
+        .timeline-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            height: 600px;
+            overflow-y: auto;
+        }
+        
+        .timeline-item {
+            display: flex;
+            margin-bottom: 20px;
+            opacity: 0.4;
+            transition: 0.3s;
+        }
+        .timeline-item.active { opacity: 1; }
+        .timeline-item.completed { opacity: 0.8; }
+        
+        .step-num {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            background: var(--bg-color);
+            border: 2px solid var(--text-muted);
+            display: flex; justify-content: center; align-items: center;
+            font-size: 12px; font-weight: bold;
+            margin-right: 15px; flex-shrink: 0;
+            z-index: 2;
+        }
+        .active .step-num { border-color: var(--accent-blue); color: var(--accent-blue); box-shadow: 0 0 10px rgba(88, 166, 255, 0.4);}
+        .completed .step-num { border-color: var(--accent-green); background: var(--accent-green); color: #fff; }
+
+        .step-content h4 { margin: 4px 0 5px 0; font-size: 15px; }
+        .step-content p { margin: 0; font-size: 12px; color: var(--text-muted); }
+
+        /* 右侧：详情面板与终端 */
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 详情解说卡片 */
+        .info-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 120px;
+        }
+        .info-card h3 { margin: 0 0 10px 0; color: var(--accent-cyan); display: flex; align-items: center;}
+        .info-card h3::before { content: "💡"; margin-right: 8px; }
+        .info-card p { margin: 0; line-height: 1.6; font-size: 15px; color: #e6edf3; }
+
+        /* 终端区域 */
+        .terminal {
+            background: #010409;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            flex-grow: 1;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            box-shadow: inset 0 0 20px rgba(0,0,0,1);
+        }
+        .term-line { margin-bottom: 8px; font-size: 14px; line-height: 1.4; word-break: break-all;}
+        .t-time { color: #6e7681; margin-right: 10px; }
+        .t-sys { color: var(--text-muted); font-style: italic; }
+        .t-req { color: var(--accent-red); font-weight: bold; }
+        .t-res { color: var(--accent-green); font-weight: bold; }
+        .t-wait { color: #d2a8ff; font-weight: bold;}
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <div class="header">
+        <h2>🚗 UDS 固件刷写 (OTA Hijack) 状态机沙盘</h2>
+        <div class="controls">
+            <button id="btn-reset">重置沙盘</button>
+            <button id="btn-next">执行下一步 (Execute Next)</button>
+        </div>
+    </div>
+
+    <!-- 左侧时间轴 -->
+    <div class="timeline-container" id="timeline">
+        <!-- JS 动态生成进度 -->
+    </div>
+
+    <!-- 右侧主区域 -->
+    <div class="main-panel">
+        <!-- 黑客实战意义解说面板 -->
+        <div class="info-card">
+            <h3>黑客实战意义 (Hacker Perspective)</h3>
+            <p id="hacker-desc">系统已初始化。请点击右上角“执行下一步”开始进行 UDS 协议渗透与固件劫持推演。</p>
+        </div>
+
+        <!-- 十六进制终端 -->
+        <div class="terminal" id="terminal">
+            <div class="term-line"><span class="t-time">[SYS]</span><span class="t-sys"> 目标 ECU (192.168.1.100:13400) 已连接。当前状态: 默认会话 (0x01)。</span></div>
+            <div class="term-line"><span class="t-time">[SYS]</span><span class="t-sys"> 等待执行渗透指令...</span></div>
+            <div class="term-line t-sys">-------------------------------------------------------------</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const stepsData = [
+        { title: "提权准备", sub: "10 03 扩展会话", req: "10 03", res: "50 03", 
+          desc: "默认状态下无权操作。发送 `10 03` 请求进入扩展会话，这是解锁高级诊断指令、通往刷机模式的必经跳板。" },
+        { title: "解锁安防", sub: "27 01 请求种子", req: "27 01", res: "67 01 1A 2B 3C 4D", 
+          desc: "触发 Security Access 服务。向 ECU 索要随机生成的 Seed (种子)，为后续的算法破解做准备。" },
+        { title: "验证密钥", sub: "27 02 发送密钥", req: "27 02 8F 9E A1 B2", res: "67 02", 
+          desc: "攻防核心！利用提取出的 Seed2Key 算法和硬编码常量计算出 Key 并发送。收到 `67 02` 代表最高权限解锁成功！" },
+        { title: "刷机静默", sub: "28/85 关闭通信与DTC", req: "28 03 01\n85 02", res: "68 03 01\nC5 02", 
+          desc: "渗透清场操作。关闭总线上的正常报文广播防止干扰，并关闭 DTC（故障码）存储，防止仪表盘爆故障灯惊动车主。" },
+        { title: "进入底层", sub: "10 02 编程会话", req: "10 02", res: "50 02", 
+          desc: "正式进入 Bootloader 刷机模式（Root 态）。此时 ECU 将全力以赴准备接收底层二进制代码。" },
+        { title: "擦除系统", sub: "31 01 例程控制", req: "31 01 FF 00", res: "7F 31 78 -> 71 01 FF 00", 
+          desc: "RCE 致命打击！调用底层例程强行擦除原厂固件所在的 Flash 内存。由于耗时较长，ECU 会先返回 NRC 0x78(等待)，完成后返回 71 成功。" },
+        { title: "建立传输", sub: "34 请求下载", req: "34 00 44 00 01 80 00 00 10 00 00", res: "74 20 00 04", 
+          desc: "告诉 ECU 恶意固件的起始内存地址（如 0x018000）和文件大小，要求其分配缓冲区。" },
+        { title: "灌入木马", sub: "36 数据传输", req: "36 01 4A 4B 45 5F 58 31 5F...", res: "76 01", 
+          desc: "最激动人心的一步。将编译好的带有后门的恶意固件（如被篡改的 .s19 文件）分块源源不断地注入 ECU 内存。" },
+        { title: "结束封包", sub: "37 退出传输", req: "37", res: "77", 
+          desc: "数据灌入完毕，通知 ECU 停止接收，准备校验新固件。" },
+        { title: "强制重启", sub: "11 01 ECU复位", req: "11 01", res: "51 01", 
+          desc: "发送 Hard Reset。ECU 重启后将加载你刚才写入的恶意固件，底层控制权被彻底永久劫持！" }
+    ];
+
+    let currentIndex = -1;
+    const timelineEl = document.getElementById('timeline');
+    const terminalEl = document.getElementById('terminal');
+    const hackerDescEl = document.getElementById('hacker-desc');
+    const btnNext = document.getElementById('btn-next');
+    const btnReset = document.getElementById('btn-reset');
+
+    // 初始化时间轴
+    function initTimeline() {
+        timelineEl.innerHTML = '';
+        stepsData.forEach((step, index) => {
+            const item = document.createElement('div');
+            item.className = 'timeline-item';
+            item.id = `tl-item-${index}`;
+            item.innerHTML = `
+                <div class="step-num">${index + 1}</div>
+                <div class="step-content">
+                    <h4>${step.title}</h4>
+                    <p>${step.sub}</p>
+                </div>
+            `;
+            timelineEl.appendChild(item);
+        });
+    }
+
+    function getTimestamp() {
+        const d = new Date();
+        return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}.${d.getMilliseconds().toString().padStart(3,'0')}`;
+    }
+
+    function logTerminal(type, text) {
+        const div = document.createElement('div');
+        div.className = 'term-line';
+        let prefix = '';
+        let contentClass = '';
+        
+        if(type === 'req') { prefix = '[攻击机 TX] '; contentClass = 't-req'; }
+        else if(type === 'res') { prefix = '[ECU 响应 RX]'; contentClass = 't-res'; }
+        else if(type === 'wait') { prefix = '[ECU 挂起 RX]'; contentClass = 't-wait'; }
+        
+        // 处理多行报文 (如第4步)
+        const lines = text.split('\n');
+        lines.forEach(line => {
+            div.innerHTML += `<span class="t-time">[${getTimestamp()}]</span> <span class="${contentClass}">${prefix} ${line}</span><br>`;
+        });
+        
+        terminalEl.appendChild(div);
+        terminalEl.scrollTop = terminalEl.scrollHeight;
+    }
+
+    btnNext.addEventListener('click', () => {
+        if (currentIndex >= stepsData.length - 1) return;
+        
+        currentIndex++;
+        const step = stepsData[currentIndex];
+        
+        // 1. 更新左侧状态
+        if(currentIndex > 0) {
+            document.getElementById(`tl-item-${currentIndex-1}`).classList.replace('active', 'completed');
+        }
+        document.getElementById(`tl-item-${currentIndex}`).classList.add('active');
+
+        // 2. 更新右侧解说
+        hackerDescEl.innerHTML = `<strong>${step.title}：</strong>${step.desc}`;
+
+        // 3. 终端交互推演
+        btnNext.disabled = true;
+        logTerminal('req', step.req);
+
+        // 模拟网络延迟和特殊的 0x78 响应
+        setTimeout(() => {
+            if(step.req.includes('31 01 FF 00')) {
+                logTerminal('wait', '7F 31 78 (NRC: Response Pending - 正在擦除,请等待)');
+                setTimeout(() => {
+                    logTerminal('res', '71 01 FF 00');
+                    btnNext.disabled = false;
+                }, 1200);
+            } else {
+                logTerminal('res', step.res);
+                if (currentIndex === stepsData.length - 1) {
+                    btnNext.textContent = "目标已被完全劫持";
+                } else {
+                    btnNext.disabled = false;
+                }
+            }
+        }, 500);
+    });
+
+    btnReset.addEventListener('click', () => {
+        currentIndex = -1;
+        initTimeline();
+        hackerDescEl.innerHTML = "系统已重置。请点击右上角“执行下一步”开始进行 UDS 协议渗透与固件劫持推演。";
+        terminalEl.innerHTML = `
+            <div class="term-line"><span class="t-time">[SYS]</span><span class="t-sys"> 目标 ECU 已重新连接。状态: 默认会话 (0x01)。</span></div>
+            <div class="term-line t-sys">-------------------------------------------------------------</div>
+        `;
+        btnNext.disabled = false;
+        btnNext.textContent = "执行下一步 (Execute Next)";
+    });
+
+    // 初始加载
+    initTimeline();
+
+</script>
+</body>
+</html>
